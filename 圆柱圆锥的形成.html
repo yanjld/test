@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>旋转几何体演示</title>
+    <!-- 引入 Tailwind CSS 用于快速构建友好的 UI 界面 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Three.js 核心库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- 引入 OrbitControls 轨道控制器，用于鼠标控制视角 -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f4f8; /* 柔和的背景色 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        /* 美化滑动条 */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D 场景容器 -->
+    <div id="canvas-container"></div>
+
+    <!-- UI 控制面板 -->
+    <div class="absolute top-6 left-6 bg-white/90 backdrop-blur-sm p-5 rounded-2xl shadow-2xl flex flex-col gap-4 w-80 max-w-[90vw] border border-gray-100 z-10">
+        <div>
+            <h2 id="mainTitle" class="text-xl font-bold text-gray-800 tracking-tight">长方形旋转生成圆柱</h2>
+            <p class="text-xs text-gray-500 mt-1">拖动鼠标可360°观察，滚动滚轮缩放</p>
+        </div>
+
+        <!-- 形状切换开关 -->
+        <div class="flex items-center gap-4 mt-1 border-b border-gray-100 pb-3">
+            <label class="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+                <input type="radio" name="shapeType" value="cylinder" checked class="text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer">
+                <span>圆柱 (长方形)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+                <input type="radio" name="shapeType" value="cone" class="text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer">
+                <span>圆锥 (三角形)</span>
+            </label>
+        </div>
+        
+        <div class="flex flex-col gap-4 mt-1">
+            <!-- 角度控制 -->
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-sm font-medium text-gray-700">
+                    <span>旋转角度</span>
+                    <span class="text-blue-600 font-semibold"><span id="angleValue">0</span>°</span>
+                </div>
+                <input type="range" id="angleSlider" min="0" max="360" value="0" class="focus:outline-none">
+            </div>
+
+            <!-- 半径控制 -->
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-sm font-medium text-gray-700">
+                    <span id="radiusLabel">底面半径 (宽)</span>
+                    <span class="text-blue-600 font-semibold"><span id="radiusValue">3.0</span></span>
+                </div>
+                <input type="range" id="radiusSlider" min="0" max="6" step="0.1" value="3" class="focus:outline-none">
+            </div>
+
+            <!-- 高度控制 -->
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-sm font-medium text-gray-700">
+                    <span id="heightLabel">几何高度 (长)</span>
+                    <span class="text-blue-600 font-semibold"><span id="heightValue">6.0</span></span>
+                </div>
+                <input type="range" id="heightSlider" min="0" max="8" step="0.1" value="6" class="focus:outline-none">
+            </div>
+
+            <!-- 侧面展开控制 -->
+            <div class="flex flex-col gap-1.5 mt-1 border-t border-gray-100 pt-3">
+                <div class="flex justify-between text-sm font-medium text-gray-700">
+                    <span>侧面展开</span>
+                    <span class="text-indigo-600 font-semibold"><span id="unfoldValue">0</span>%</span>
+                </div>
+                <input type="range" id="unfoldSlider" min="0" max="100" value="0" class="focus:outline-none">
+            </div>
+
+            <!-- 重置视角按钮 -->
+            <div class="mt-1 flex justify-center">
+                <button id="resetViewBtn" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg shadow-sm transition-colors duration-200 text-sm">
+                    重置视角
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 基础场景设置 ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0xf0f4f8, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(12, 10, 15);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; 
+        controls.dampingFactor = 0.05;
+        controls.target.set(0, 3, 0); 
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+        scene.add(ambientLight);
+        
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.6); 
+        directionalLight1.position.set(10, 20, 10);
+        scene.add(directionalLight1);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xfff0dd, 0.4); 
+        directionalLight2.position.set(-10, -10, -10);
+        scene.add(directionalLight2);
+
+        // --- 2. 全局状态与材质定义 ---
+        let currentShape = 'cylinder'; // 当前形状: 'cylinder' 或 'cone'
+        let currentAngle = 0;   
+        let currentRadius = 3;  
+        let currentHeight = 6;  
+        let currentUnfold = 0;  
+
+        const gridHelper = new THREE.GridHelper(30, 30, 0xcccccc, 0xe0e0e0);
+        scene.add(gridHelper);
+
+        const axisMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.5, transparent: true });
+        const rectMat = new THREE.MeshStandardMaterial({ 
+            color: 0xff6b2b, 
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.9
+        });
+        const rectLineMat = new THREE.LineBasicMaterial({ color: 0xcc4400, linewidth: 2, transparent: true });
+        const cylMat = new THREE.MeshPhysicalMaterial({
+            color: 0x1d4ed8, 
+            transparent: true,
+            opacity: 0.45,
+            side: THREE.DoubleSide,
+            roughness: 0.1,
+            transmission: 0.5,
+            thickness: 0.5
+        });
+        const cylLineMat = new THREE.LineBasicMaterial({ color: 0x1e3a8a, transparent: true, opacity: 0.6 });
+
+        const capMat = cylMat.clone();
+        const capLineMat = cylLineMat.clone();
+
+        let axis;
+        const rectGroup = new THREE.Group();
+        scene.add(rectGroup);
+        let rectangle;
+        let rectLine;
+        
+        const cylinderGroup = new THREE.Group();
+        scene.add(cylinderGroup);
+
+        // --- 3. 更新基础几何体 (中心轴、基础多边形) ---
+        function updateBaseGeometry() {
+            const baseOpacity = 1 - currentUnfold;
+            axisMat.opacity = baseOpacity;
+            rectMat.opacity = 0.9 * baseOpacity;
+            rectLineMat.opacity = baseOpacity;
+
+            if (axis) {
+                scene.remove(axis);
+                axis.geometry.dispose();
+            }
+            const safeHeight = Math.max(0.001, currentHeight);
+            const safeRadius = Math.max(0.001, currentRadius);
+
+            const axisGeom = new THREE.CylinderGeometry(0.04, 0.04, safeHeight + 2, 16);
+            axis = new THREE.Mesh(axisGeom, axisMat);
+            axis.position.y = safeHeight / 2; 
+            scene.add(axis);
+
+            if (rectangle) {
+                rectGroup.remove(rectangle);
+                rectangle.geometry.dispose();
+                rectLine.geometry.dispose();
+            }
+            
+            let rectGeom;
+            // 根据当前选择的形状，生成对应的二维平面几何体
+            if (currentShape === 'cylinder') {
+                rectGeom = new THREE.PlaneGeometry(safeRadius, safeHeight);
+            } else {
+                // 圆锥使用直角三角形，确保直角边与中心轴重合
+                const shape = new THREE.Shape();
+                shape.moveTo(safeRadius/2, safeHeight/2);   // 顶部顶点 (位于轴心)
+                shape.lineTo(-safeRadius/2, -safeHeight/2); // 左下角 (外围底部)
+                shape.lineTo(safeRadius/2, -safeHeight/2);  // 右下角 (位于轴心底部)
+                shape.lineTo(safeRadius/2, safeHeight/2);   // 闭合路径
+                rectGeom = new THREE.ShapeGeometry(shape);
+            }
+
+            rectangle = new THREE.Mesh(rectGeom, rectMat);
+            // 旋转与定位，使其右边缘能够绕 Y 轴旋转
+            rectangle.rotation.y = Math.PI / 2; 
+            rectangle.position.z = safeRadius / 2; 
+            rectangle.position.y = safeHeight / 2; 
+            
+            const rectEdges = new THREE.EdgesGeometry(rectGeom);
+            rectLine = new THREE.LineSegments(rectEdges, rectLineMat);
+            rectangle.add(rectLine);
+
+            rectGroup.add(rectangle);
+        }
+
+        // --- 4. 更新三维立体几何体 ---
+        function updateCylinder() {
+            while(cylinderGroup.children.length > 0){ 
+                const child = cylinderGroup.children[0];
+                cylinderGroup.remove(child); 
+                if (child.geometry) child.geometry.dispose();
+            }
+
+            const angleRad = THREE.MathUtils.degToRad(currentAngle);
+
+            if (angleRad > 0.02) {
+                const H = Math.max(0.001, currentHeight);
+                const R = Math.max(0.001, currentRadius);
+                const L = R * angleRad; 
+                const segments = Math.max(8, Math.floor(64 * (currentAngle / 360))); 
+                
+                // --- 通用侧面生成与展开算法 ---
+                const latGeom = new THREE.PlaneGeometry(Math.max(0.001, L), H, segments, 1);
+                const positions = latGeom.attributes.position.array;
+
+                if (currentShape === 'cylinder') {
+                    // 圆柱的卷轴展开算法
+                    for (let i = 0; i < positions.length; i += 3) {
+                        const s = positions[i] + L / 2; 
+                        const k_factor = 1 - currentUnfold;
+
+                        if (k_factor < 0.0001) {
+                            positions[i] = s;
+                            positions[i+2] = R;
+                        } else {
+                            const u = s / R; 
+                            const current_u = u * k_factor; 
+                            const r_prime = R / k_factor; 
+
+                            positions[i] = r_prime * Math.sin(current_u);
+                            positions[i+2] = R - r_prime + r_prime * Math.cos(current_u);
+                        }
+                    }
+                } else {
+                    // 圆锥的等距扇形展开算法
+                    const l_cone = Math.sqrt(R*R + H*H);
+                    const beta = Math.asin(R / l_cone); // 初始半顶角
+                    const U = currentUnfold;
+                    const gamma = beta + U * (Math.PI / 2 - beta); // 展开过程中的当前半顶角
+                    
+                    for (let i = 0; i < positions.length; i += 3) {
+                        const s = positions[i] + L / 2; // 当前弧长 0 ~ L
+                        const u = s / R; // 当前圆锥生成角 0 ~ angleRad
+                        
+                        const y_plane = positions[i+1];
+                        const v = (y_plane + H/2) / H; // 高度比例：0(底) 到 1(顶)
+                        const r_dist = l_cone * (1 - v); // 距离顶点的母线长度
+                        
+                        // 等距展开的核心：保持扇形面内距离不变
+                        const phi = u * (Math.sin(beta) / Math.sin(gamma));
+                        
+                        // 以顶点为原点的局部坐标
+                        const rho = r_dist * Math.sin(gamma);
+                        const y_local = -r_dist * Math.cos(gamma);
+                        const x_local = rho * Math.sin(phi);
+                        const z_local = rho * Math.cos(phi);
+                        
+                        // 绕 X 轴旋转，使得起始母线 (u=0) 严格固定在原位置不动
+                        const theta = beta - gamma; 
+                        const z_rot = z_local * Math.cos(theta) - y_local * Math.sin(theta);
+                        const y_rot = z_local * Math.sin(theta) + y_local * Math.cos(theta);
+                        const x_rot = x_local;
+                        
+                        // 还原到模型世界坐标系 (顶点平移回 H/2)
+                        positions[i]   = x_rot;
+                        positions[i+1] = H / 2 + y_rot;
+                        positions[i+2] = z_rot;
+                    }
+                }
+                latGeom.computeVertexNormals(); 
+
+                const latMesh = new THREE.Mesh(latGeom, cylMat);
+                latMesh.position.y = H / 2;
+                cylinderGroup.add(latMesh);
+
+                const latEdges = new THREE.LineSegments(new THREE.EdgesGeometry(latGeom, 30), cylLineMat);
+                latEdges.position.y = H / 2;
+                cylinderGroup.add(latEdges);
+
+                // --- 顶部和底部盖子生成 ---
+                const capOpacity = 1 - currentUnfold;
+                if (capOpacity > 0.01) {
+                    capMat.opacity = cylMat.opacity * capOpacity;
+                    capLineMat.opacity = cylLineMat.opacity * capOpacity;
+
+                    // 圆柱需要顶部盖子，圆锥不需要
+                    if (currentShape === 'cylinder') {
+                        const topGeom = new THREE.BufferGeometry();
+                        const topPos = [0, H/2, 0]; 
+                        for(let i=0; i<=segments; i++){
+                            const phi = (i / segments) * angleRad;
+                            topPos.push(R * Math.sin(phi), H/2, R * Math.cos(phi));
+                        }
+                        const topIndices = [];
+                        for(let i=1; i<=segments; i++){ topIndices.push(0, i, i+1); }
+                        topGeom.setAttribute('position', new THREE.Float32BufferAttribute(topPos, 3));
+                        topGeom.setIndex(topIndices);
+                        topGeom.computeVertexNormals();
+
+                        const topMesh = new THREE.Mesh(topGeom, capMat);
+                        topMesh.position.y = H / 2;
+                        cylinderGroup.add(topMesh);
+                        const topEdges = new THREE.LineSegments(new THREE.EdgesGeometry(topGeom), capLineMat);
+                        topEdges.position.y = H / 2;
+                        cylinderGroup.add(topEdges);
+                    }
+
+                    // 底部盖子 (两者都需要)
+                    const botGeom = new THREE.BufferGeometry();
+                    const botPos = [0, -H/2, 0];
+                    for(let i=0; i<=segments; i++){
+                        const phi = (i / segments) * angleRad;
+                        botPos.push(R * Math.sin(phi), -H/2, R * Math.cos(phi));
+                    }
+                    const botIndices = [];
+                    for(let i=1; i<=segments; i++){ botIndices.push(0, i+1, i); } 
+                    botGeom.setAttribute('position', new THREE.Float32BufferAttribute(botPos, 3));
+                    botGeom.setIndex(botIndices);
+                    botGeom.computeVertexNormals();
+
+                    const botMesh = new THREE.Mesh(botGeom, capMat);
+                    botMesh.position.y = H / 2;
+                    cylinderGroup.add(botMesh);
+                    const botEdges = new THREE.LineSegments(new THREE.EdgesGeometry(botGeom), capLineMat);
+                    botEdges.position.y = H / 2;
+                    cylinderGroup.add(botEdges);
+                }
+            }
+        }
+
+        // --- 5. 交互逻辑绑定 ---
+        const shapeRadios = document.querySelectorAll('input[name="shapeType"]');
+        const mainTitle = document.getElementById('mainTitle');
+        const angleSlider = document.getElementById('angleSlider');
+        const angleValueDisplay = document.getElementById('angleValue');
+        const radiusSlider = document.getElementById('radiusSlider');
+        const radiusValueDisplay = document.getElementById('radiusValue');
+        const heightSlider = document.getElementById('heightSlider');
+        const heightValueDisplay = document.getElementById('heightValue');
+        const unfoldSlider = document.getElementById('unfoldSlider');
+        const unfoldValueDisplay = document.getElementById('unfoldValue');
+        const resetViewBtn = document.getElementById('resetViewBtn');
+
+        // 监听形状切换
+        shapeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                currentShape = e.target.value;
+                if (currentShape === 'cylinder') {
+                    mainTitle.innerText = '长方形旋转生成圆柱';
+                } else {
+                    mainTitle.innerText = '三角形旋转生成圆锥';
+                }
+                updateBaseGeometry();
+                updateCylinder();
+            });
+        });
+
+        angleSlider.addEventListener('input', (e) => {
+            currentAngle = parseFloat(e.target.value);
+            angleValueDisplay.innerText = Math.round(currentAngle);
+            const rad = THREE.MathUtils.degToRad(currentAngle);
+            rectGroup.rotation.y = rad;
+            updateCylinder();
+        });
+
+        radiusSlider.addEventListener('input', (e) => {
+            currentRadius = parseFloat(e.target.value);
+            radiusValueDisplay.innerText = currentRadius.toFixed(1);
+            updateBaseGeometry();
+            updateCylinder(); 
+        });
+
+        heightSlider.addEventListener('input', (e) => {
+            currentHeight = parseFloat(e.target.value);
+            heightValueDisplay.innerText = currentHeight.toFixed(1);
+            updateBaseGeometry();
+            updateCylinder(); 
+        });
+
+        unfoldSlider.addEventListener('input', (e) => {
+            currentUnfold = parseFloat(e.target.value) / 100;
+            unfoldValueDisplay.innerText = e.target.value;
+            updateBaseGeometry(); 
+            updateCylinder();     
+        });
+
+        resetViewBtn.addEventListener('click', () => {
+            camera.position.set(12, 10, 15);
+            controls.target.set(0, 3, 0);
+            controls.update();
+        });
+
+        updateBaseGeometry();
+        updateCylinder();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- 6. 动画循环 ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+    </script>
+</body>
+</html>
